@@ -1,0 +1,305 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Test {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+  name      String?
+}
+
+model User {
+  id                  String          @id
+  name                String
+  email               String?         @unique
+  emailVerified       Boolean         @default(false)
+  phoneNumber         String?         @unique
+  phoneNumberVerified Boolean         @default(false)
+  image               String?
+  imagePublicId       String?
+  expoPushToken       String?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  sessions            Session[]
+  accounts            Account[]
+  profile             Profile?
+  preference          UserPreference?
+  photos              ProfilePhoto[]
+  sentLikes           Like[]          @relation("SentLikes")
+  receivedLikes       Like[]          @relation("ReceivedLikes")
+  matchesAsUser1      Match[]         @relation("MatchesAsUser1")
+  matchesAsUser2      Match[]         @relation("MatchesAsUser2")
+  sentMessages        Message[]       @relation("SentMessages")
+  receivedMessages    Message[]       @relation("ReceivedMessages")
+  sentMessageRequests MessageRequest[] @relation("SentMessageRequests")
+  receivedMessageRequests MessageRequest[] @relation("ReceivedMessageRequests")
+  notifications       Notification[]   @relation("UserNotifications")
+  triggeredNotifications Notification[] @relation("TriggeredNotifications")
+  blocksCreated       Block[]          @relation("BlocksCreated")
+  blocksReceived      Block[]          @relation("BlocksReceived")
+  reportsFiled        Report[]         @relation("ReportsFiled")
+  reportsReceived     Report[]         @relation("ReportsReceived")
+  encountersAsUser1   Encounter[]      @relation("EncountersAsUser1")
+  encountersAsUser2   Encounter[]      @relation("EncountersAsUser2")
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("verification")
+}
+
+model Otp {
+  id        String   @id @default(cuid())
+  phone     String
+  otp       String
+  expiresAt DateTime
+  verified  Boolean  @default(false)
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([phone])
+  @@map("otp")
+}
+
+model Profile {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bio            String?   @default("")
+  dob            DateTime?
+  age            Int?
+  gender         String?
+  lookingFor     String[]  @default([])
+  location       String?
+  latitude       Float?
+  longitude      Float?
+  jobTitle       String?
+  tags           String[]  @default([])
+  avatarUrl      String?
+  avatarPublicId String?
+  isGhostMode    Boolean   @default(false)
+  isIncognito    Boolean   @default(false)
+  lastActive     DateTime? @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("profile")
+}
+
+model UserPreference {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  datingGoal      String?
+  personality     String?
+  partnerTraits   String?
+  musicPreference String?
+  dealBreakers    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("user_preference")
+}
+
+model ProfilePhoto {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url       String
+  publicId  String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("profile_photo")
+}
+
+model Like {
+  id           String   @id @default(cuid())
+  userId       String
+  targetUserId String
+  action       String   @default("like") // "like", "pass", "superlike"
+  createdAt    DateTime @default(now())
+
+  user       User @relation("SentLikes", fields: [userId], references: [id], onDelete: Cascade)
+  targetUser User @relation("ReceivedLikes", fields: [targetUserId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, targetUserId])
+  @@index([userId])
+  @@index([targetUserId])
+  @@map("like")
+}
+
+model Match {
+  id        String   @id @default(cuid())
+  user1Id   String
+  user2Id   String
+  createdAt DateTime @default(now())
+
+  user1 User @relation("MatchesAsUser1", fields: [user1Id], references: [id], onDelete: Cascade)
+  user2 User @relation("MatchesAsUser2", fields: [user2Id], references: [id], onDelete: Cascade)
+
+  @@unique([user1Id, user2Id])
+  @@index([user1Id])
+  @@index([user2Id])
+  @@map("match")
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  senderId   String
+  receiverId String
+  text       String
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  sender   User @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([senderId, receiverId])
+  @@index([receiverId, senderId])
+  @@index([createdAt])
+  @@map("message")
+}
+
+model MessageRequest {
+  id         String   @id @default(cuid())
+  senderId   String
+  receiverId String
+  message    String
+  status     String   @default("pending") // "pending", "accepted", "declined"
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  sender   User @relation("SentMessageRequests", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("ReceivedMessageRequests", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@unique([senderId, receiverId])
+  @@index([senderId])
+  @@index([receiverId])
+  @@map("message_request")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  senderId  String?
+  type      String   // "match", "superlike", "crossed", "request", "recommendation", "system"
+  title     String
+  message   String
+  data      Json?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user   User  @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  sender User? @relation("TriggeredNotifications", fields: [senderId], references: [id], onDelete: SetNull)
+
+  @@index([userId, read])
+  @@index([userId, createdAt])
+  @@map("notification")
+}
+
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  reason    String?
+  createdAt DateTime @default(now())
+
+  blocker   User     @relation("BlocksCreated", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("BlocksReceived", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+  @@index([blockedId])
+  @@map("block")
+}
+
+model Report {
+  id          String   @id @default(cuid())
+  reporterId  String
+  reportedId  String
+  category    String   // "Harassment", "Fake Profile", "Inappropriate Photos", "Spam", "Other"
+  details     String?
+  status      String   @default("pending") // "pending", "reviewed", "resolved", "dismissed"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  reporter    User     @relation("ReportsFiled", fields: [reporterId], references: [id], onDelete: Cascade)
+  reported    User     @relation("ReportsReceived", fields: [reportedId], references: [id], onDelete: Cascade)
+
+  @@index([reporterId])
+  @@index([reportedId])
+  @@index([status])
+  @@map("report")
+}
+
+model Encounter {
+  id            String   @id @default(cuid())
+  user1Id       String
+  user2Id       String
+  count         Int      @default(1)
+  locationName  String?
+  latitude      Float?
+  longitude     Float?
+  lastCrossedAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user1         User     @relation("EncountersAsUser1", fields: [user1Id], references: [id], onDelete: Cascade)
+  user2         User     @relation("EncountersAsUser2", fields: [user2Id], references: [id], onDelete: Cascade)
+
+  @@unique([user1Id, user2Id])
+  @@index([user1Id])
+  @@index([user2Id])
+  @@index([lastCrossedAt])
+  @@map("encounter")
+}
+

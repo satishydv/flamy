@@ -1,0 +1,38 @@
+@import url('https://fonts.googleapis.com/css2?family=Gothic+A1:wght@100;200;300;400;500;600;700;800;900&display=swap');
+
+:root {
+  --font-display: 'Gothic A1', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-rounded: 'Gothic A1', sans-serif;
+  --font-serif: Georgia, 'Times New Roman', serif;
+}
+
+body, html, #root {
+  font-family: 'Gothic A1', sans-serif;
+}
+
+/* Apply Gothic A1 font to all standard text */
+[class*="css-text"] {
+  font-family: 'Gothic A1', sans-serif;
+}
+
+/* Protect icon fonts from being overridden by Gothic A1 */
+[class*="css-text"][style*="Ionicons"],
+[class*="css-text"][style*="font-family: Ionicons"],
+[class*="css-text"][style*="font-family: 'Ionicons'"],
+[class*="css-text"][style*="font-family: \"Ionicons\""],
+[style*="font-family: Ionicons"],
+[style*="font-family: 'Ionicons'"],
+[style*="font-family: \"Ionicons\""] {
+  font-family: Ionicons !important;
+}
+
+[class*="css-text"][style*="MaterialIcons"],
+[style*="font-family: MaterialIcons"] {
+  font-family: MaterialIcons !important;
+}
+
+[class*="css-text"][style*="FontAwesome"],
+[style*="font-family: FontAwesome"] {
+  font-family: FontAwesome !important;
+}
