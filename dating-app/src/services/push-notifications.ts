@@ -93,17 +93,44 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
       return null;
     }
 
+    // On Android native builds, expo-notifications requires Firebase (FCM) credentials configured via googleServicesFile.
+    // If not yet configured, log a friendly advisory and skip token fetch to avoid RedBox errors.
+    const hasGoogleServices = Boolean(
+      Constants?.expoConfig?.android?.googleServicesFile ||
+      (Constants as any)?.manifest?.android?.googleServicesFile
+    );
+
+    if (Platform.OS === 'android' && !hasGoogleServices) {
+      console.log(
+        '[PUSH NOTIFICATIONS] FCM credentials (googleServicesFile) are not yet configured in app.json. ' +
+        'Remote push registration is skipped. (Local notifications & in-app alerts remain active).'
+      );
+      return null;
+    }
+
     // Resolve project ID if EAS is configured
     const projectId =
       Constants?.expoConfig?.extra?.eas?.projectId ??
       Constants?.easConfig?.projectId;
 
-    const tokenResponse = await Notifications.getExpoPushTokenAsync(
-      projectId ? { projectId } : undefined
-    );
+    let token: string | null = null;
 
-    const token = tokenResponse.data;
-    console.log('[PUSH NOTIFICATIONS] Registered device push token:', token);
+    try {
+      const tokenResponse = await Notifications.getExpoPushTokenAsync(
+        projectId ? { projectId } : undefined
+      );
+      token = tokenResponse.data;
+      console.log('[PUSH NOTIFICATIONS] Registered Expo push token:', token);
+    } catch (expoErr: any) {
+      console.log('[PUSH NOTIFICATIONS] getExpoPushTokenAsync notice:', expoErr?.message);
+      try {
+        const deviceTokenRes = await Notifications.getDevicePushTokenAsync();
+        token = deviceTokenRes?.data ? String(deviceTokenRes.data) : null;
+        console.log('[PUSH NOTIFICATIONS] Registered native device push token (FCM):', token);
+      } catch (devErr: any) {
+        console.warn('[PUSH NOTIFICATIONS] Device push token notice:', devErr?.message);
+      }
+    }
 
     // Persist token to user record in PostgreSQL backend
     if (token) {
@@ -117,8 +144,8 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
     }
 
     return token;
-  } catch (error) {
-    console.error('[PUSH NOTIFICATIONS] Registration error:', error);
+  } catch (error: any) {
+    console.warn('[PUSH NOTIFICATIONS] Registration notice:', error?.message || error);
     return null;
   }
 }

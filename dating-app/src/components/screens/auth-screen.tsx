@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Linking from 'expo-linking';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { BACKEND_URL, API_ENDPOINTS, setAuthToken } from '@/constants/api';
+import { BACKEND_URL, API_ENDPOINTS, setAuthToken, getAuthToken, getAuthHeaders } from '@/constants/api';
 
 export interface AuthUser {
   id?: string;
@@ -256,13 +256,30 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
       // On Web: use browser window.location.origin
       // On Mobile (Android / iOS in Expo): use Expo deep link (exp://... or datingapp://...)
-      const callbackURL = isWeb
+      let callbackURL = isWeb
         ? `${window.location.origin}?flow=${mode}`
         : Linking.createURL('/', { queryParams: { flow: mode } });
 
-      const errorCallbackURL = isWeb
+      let errorCallbackURL = isWeb
         ? `${window.location.origin}?auth_error=true`
         : Linking.createURL('/', { queryParams: { auth_error: 'true' } });
+
+      // In standalone/dev builds, Linking.createURL('/') generates "datingapp:///?flow=..." without an authority/host.
+      // Better-Auth's origin matcher checks the authority against "datingapp://*" and rejects empty authorities.
+      // Normalizing to "datingapp://--/..." provides the standard Expo deep-link authority and matches "datingapp://*".
+      if (!isWeb) {
+        if (callbackURL.startsWith('datingapp:///') && !callbackURL.startsWith('datingapp://--/')) {
+          callbackURL = callbackURL.replace('datingapp:///', 'datingapp://--/');
+        } else if (callbackURL.startsWith('datingapp://') && !callbackURL.startsWith('datingapp://--/') && !callbackURL.includes('localhost') && !callbackURL.includes(':')) {
+          callbackURL = callbackURL.replace('datingapp://', 'datingapp://--/');
+        }
+
+        if (errorCallbackURL.startsWith('datingapp:///') && !errorCallbackURL.startsWith('datingapp://--/')) {
+          errorCallbackURL = errorCallbackURL.replace('datingapp:///', 'datingapp://--/');
+        } else if (errorCallbackURL.startsWith('datingapp://') && !errorCallbackURL.startsWith('datingapp://--/') && !errorCallbackURL.includes('localhost') && !errorCallbackURL.includes(':')) {
+          errorCallbackURL = errorCallbackURL.replace('datingapp://', 'datingapp://--/');
+        }
+      }
 
       const res = await fetch(API_ENDPOINTS.socialSignIn, {
         method: 'POST',
@@ -338,6 +355,32 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               onSignUpSuccess();
             } else {
               onLoginSuccess();
+            }
+          } else {
+            // If the browser session dismissed because Android opened the app via deep link,
+            // check if the session token was already captured by the --.tsx / index.tsx handlers
+            const existingToken = getAuthToken();
+            if (existingToken) {
+              try {
+                const sessionRes = await fetch(API_ENDPOINTS.getSession, {
+                  credentials: 'include',
+                  headers: getAuthHeaders(),
+                });
+                const sessionData = await sessionRes.json();
+                if (sessionData?.user) {
+                  if (mode === 'signup') {
+                    onSignUpSuccess(sessionData.user);
+                  } else {
+                    onLoginSuccess(sessionData.user);
+                  }
+                  return;
+                }
+              } catch (e) {}
+              if (mode === 'signup') {
+                onSignUpSuccess();
+              } else {
+                onLoginSuccess();
+              }
             }
           }
         }

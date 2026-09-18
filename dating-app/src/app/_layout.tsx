@@ -7,6 +7,9 @@ import { useFonts } from 'expo-font';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as WebBrowser from 'expo-web-browser';
+
+WebBrowser.maybeCompleteAuthSession();
 
 SplashScreen.preventAutoHideAsync();
 

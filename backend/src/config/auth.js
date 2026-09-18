@@ -27,6 +27,7 @@ export const auth = betterAuth({
     },
   },
   advanced: {
+    disableOriginCheck: true,
     useSecureCookies: isHttps,
     defaultCookieAttributes: {
       sameSite: isHttps ? "none" : "lax",
@@ -57,7 +58,12 @@ export const auth = betterAuth({
     "http://localhost:5001",
     "https://backend.ckinfynity.shop",
     "exp://*",
+    "exp://**",
+    "exp://",
     "datingapp://*",
+    "datingapp://**",
+    "datingapp://",
+    "datingapp:",
   ],
 });
 

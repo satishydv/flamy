@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import { View, StyleSheet, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Linking from 'expo-linking';
+import { useLocalSearchParams } from 'expo-router';
 import { Profile, TabType, UserPreferences, OnboardingBasics } from '@/types';
 import { calculateMatchCompatibility } from '@/constants/mock-data';
 import { WelcomeScreen } from '@/components/screens/welcome-screen';
@@ -32,9 +34,11 @@ export interface AuthUser {
 }
 
 export default function App() {
+  const routerParams = useLocalSearchParams<{ token?: string; flow?: string }>();
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [onboardingFlow, setOnboardingFlow] = useState<'welcome' | 'questions' | null>('welcome');
   const [isAuthScreen, setIsAuthScreen] = useState<boolean>(false);
+  const [isInitializing, setIsInitializing] = useState<boolean>(true);
   const [isNotificationsScreen, setIsNotificationsScreen] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -146,6 +150,9 @@ export default function App() {
         }
 
         setCurrentUser(user);
+        setOnboardingFlow(null);
+        setIsAuthScreen(false);
+        setActiveTab('home');
         fetchFeed();
         fetchCounts();
         return user;
@@ -161,43 +168,92 @@ export default function App() {
     let tokenFromUrl: string | null = null;
     let flowFromUrl: string | null = null;
 
+    const handleOAuthParams = (token: string | null, flow: string | null) => {
+      if (token) {
+        setAuthToken(token);
+      }
+      checkSession(token)
+        .then((user) => {
+          if (user) {
+            setIsAuthScreen(false);
+            if (flow === 'signup') {
+              setOnboardingFlow('questions');
+            } else {
+              setOnboardingFlow(null);
+              setActiveTab('home');
+            }
+            fetchFeed();
+            fetchCounts();
+          } else if (flow) {
+            setIsAuthScreen(true);
+          }
+        })
+        .finally(() => {
+          setIsInitializing(false);
+        });
+    };
+
+    // 1. If routed via --.tsx or +not-found.tsx with params
+    if (routerParams?.token) {
+      handleOAuthParams(String(routerParams.token), routerParams.flow ? String(routerParams.flow) : null);
+      return;
+    }
+
+    // 2. Web platform URL search params
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
       const authError = urlParams.get('auth_error') || urlParams.get('error');
       if (authError) {
         window.history.replaceState({}, document.title, window.location.pathname);
         alert('Authentication failed or was cancelled. Please try again.');
+        setIsInitializing(false);
         return;
       }
       flowFromUrl = urlParams.get('flow');
       tokenFromUrl = urlParams.get('token');
-      if (tokenFromUrl) {
-        setAuthToken(tokenFromUrl);
-      }
       if (flowFromUrl) {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
-    }
+      handleOAuthParams(tokenFromUrl, flowFromUrl);
+    } else {
+      // 3. Mobile platform deep links
+      Linking.getInitialURL()
+        .then((url) => {
+          if (url) {
+            try {
+              const parsed = Linking.parse(url);
+              const token = parsed.queryParams?.token ? String(parsed.queryParams.token) : null;
+              const flow = parsed.queryParams?.flow ? String(parsed.queryParams.flow) : null;
+              if (token) {
+                handleOAuthParams(token, flow);
+                return;
+              }
+            } catch (e) {}
+          }
+          // Fallback to in-memory/persisted token
+          handleOAuthParams(getAuthToken(), null);
+        })
+        .catch(() => {
+          handleOAuthParams(getAuthToken(), null);
+        });
 
-    // Check initial active session with the extracted or stored token
-    checkSession(tokenFromUrl).then((user) => {
-      if (user) {
-        setIsAuthScreen(false);
-        if (flowFromUrl === 'signup') {
-          setOnboardingFlow('questions');
-        } else if (flowFromUrl === 'login') {
-          setOnboardingFlow(null);
-          setActiveTab('home');
+      // Mobile: listen for runtime incoming deep link redirects
+      const sub = Linking.addEventListener('url', (event) => {
+        if (event.url) {
+          try {
+            const parsed = Linking.parse(event.url);
+            const token = parsed.queryParams?.token ? String(parsed.queryParams.token) : null;
+            const flow = parsed.queryParams?.flow ? String(parsed.queryParams.flow) : null;
+            if (token) {
+              handleOAuthParams(token, flow);
+            }
+          } catch (e) {}
         }
-        fetchFeed();
-        fetchCounts();
-      } else {
-        if (flowFromUrl) {
-          setIsAuthScreen(true);
-        }
-      }
-    });
-  }, []);
+      });
+
+      return () => sub.remove();
+    }
+  }, [routerParams?.token]);
 
   // Connect Socket.IO when currentUser is active and listen for incoming calls globally
   useEffect(() => {
@@ -463,6 +519,15 @@ export default function App() {
     fetchCounts();
   };
 
+  // While checking session on launch
+  if (isInitializing) {
+    return (
+      <View style={[styles.rootContainer, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#0F0F1A' }]}>
+        <ActivityIndicator size="large" color="#FE3C72" />
+      </View>
+    );
+  }
+
   // If in Auth Screen flow (Login / Sign up)
   if (isAuthScreen) {
     return (
@@ -485,8 +550,8 @@ export default function App() {
     );
   }
 
-  // If in Welcome screen flow
-  if (onboardingFlow === 'welcome') {
+  // If in Welcome screen flow (only for unauthenticated visitors)
+  if (!currentUser && onboardingFlow === 'welcome') {
     return (
       <View style={styles.rootContainer}>
         <WelcomeScreen onGetStarted={() => setIsAuthScreen(true)} />
