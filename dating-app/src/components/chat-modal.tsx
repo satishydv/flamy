@@ -133,13 +133,19 @@ export const ChatModal: React.FC<ChatModalProps> = ({
       name: currentUser?.name || 'You',
       image: currentUser?.image || null,
     },
-    onCallEnded: (timeSpent) => {
+    onCallEnded: (timeSpent, reason) => {
       const durationStr = formatDuration(timeSpent);
       const callLabel = activeCallType === 'video' ? '📹 Video call' : '📞 Voice call';
+      let messageText = `${callLabel} ended • ${durationStr}`;
+      if (reason === 'declined') {
+        messageText = `${callLabel} declined`;
+      } else if (reason === 'unavailable') {
+        messageText = `${callLabel} missed • User unavailable`;
+      }
       const logMsg: ChatMessage = {
         id: `call-${Date.now()}`,
         senderId: 'system',
-        text: `${callLabel} ended • ${durationStr}`,
+        text: messageText,
         timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
         isMine: false,
       };

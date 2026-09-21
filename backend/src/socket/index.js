@@ -1,5 +1,6 @@
 import { Server } from "socket.io";
 import { prisma } from "../config/prisma.js";
+import { sendExpoPushNotification } from "../services/push.service.js";
 
 // Global reference to the Socket.IO instance
 let io = null;
@@ -104,7 +105,14 @@ export function initSocket(httpServer) {
 
       // Real user recipient
       const isOnline = isUserOnline(toUserId);
-      if (!isOnline) {
+
+      // Check if recipient has a push token for background / lockscreen wake-up
+      const recipientUser = await prisma.user.findUnique({
+        where: { id: toUserId },
+        select: { expoPushToken: true, name: true },
+      }).catch(() => null);
+
+      if (!isOnline && !recipientUser?.expoPushToken) {
         socket.emit("call:unavailable", {
           toUserId,
           reason: "User is currently offline.",
@@ -115,13 +123,36 @@ export function initSocket(httpServer) {
       // Notify caller that recipient device is ringing
       socket.emit("call:ringing", { callId, toUserId });
 
-      // Send incoming call prompt to recipient
-      emitToUser(toUserId, "call:incoming", {
-        callId,
-        fromUserId,
-        type: type || "audio",
-        callerInfo: callerInfo || { id: fromUserId },
-      });
+      // Send incoming call prompt to recipient via active socket
+      if (isOnline) {
+        emitToUser(toUserId, "call:incoming", {
+          callId,
+          fromUserId,
+          type: type || "audio",
+          callerInfo: callerInfo || { id: fromUserId },
+        });
+      }
+
+      // Also dispatch High-Priority OS-level call notification for background / lockscreen
+      if (recipientUser?.expoPushToken) {
+        sendExpoPushNotification({
+          to: recipientUser.expoPushToken,
+          title: `📞 Incoming ${type === "video" ? "Video" : "Voice"} Call`,
+          body: `${callerInfo?.name || "Someone"} is calling you... Tap to answer`,
+          data: {
+            type: "incoming_call",
+            callId,
+            fromUserId,
+            callerInfo: callerInfo || { id: fromUserId },
+            callType: type || "audio",
+          },
+          sound: "default",
+          channelId: "incoming-calls",
+          priority: "high",
+        }).catch((pErr) => {
+          console.error("[CALL] Push call notice error:", pErr);
+        });
+      }
     });
 
     /**

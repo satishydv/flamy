@@ -24,6 +24,7 @@ import { API_ENDPOINTS, getAuthHeaders, setAuthToken, getAuthToken } from '@/con
 import { connectSocket, disconnectSocket, getSocket, IncomingCallData } from '@/services/socket';
 import { startLocationPinger, stopLocationPinger } from '@/services/location-pinger';
 import { registerForPushNotificationsAsync, setupNotificationListeners } from '@/services/push-notifications';
+import { soundService } from '@/services/sound.service';
 
 export interface AuthUser {
   id?: string;
@@ -264,9 +265,9 @@ export default function App() {
       startLocationPinger(60000);
 
       // Register for OS-level push notifications and save expoPushToken to DB
-      registerForPushNotificationsAsync();
+      registerForPushNotificationsAsync(currentUser.id);
 
-      // Listen for lockscreen/system notification taps
+      // Listen for lockscreen/system notification taps & incoming call pushes
       const removeNotificationListeners = setupNotificationListeners({
         onNotificationResponse: (response) => {
           const data = response.notification.request.content.data;
@@ -282,11 +283,36 @@ export default function App() {
             setIsNotificationsScreen(true);
           }
         },
+        onIncomingCallNotification: (callData) => {
+          console.log('[APP] Push incoming call event received:', callData);
+          if (callData?.callId && callData?.fromUserId) {
+            setIncomingCall({
+              callId: callData.callId,
+              fromUserId: callData.fromUserId,
+              type: callData.callType || 'audio',
+              callerInfo: callData.callerInfo || { id: callData.fromUserId, name: 'Caller' },
+            });
+            soundService.playIncomingRingtone();
+          }
+        },
       });
 
       const handleIncomingCall = (callData: IncomingCallData) => {
         console.log('[APP] Incoming call event received:', callData);
         setIncomingCall(callData);
+        soundService.playIncomingRingtone();
+      };
+
+      const handleCallRejected = (data: any) => {
+        console.log('[APP] Call rejected or cancelled by other user:', data);
+        soundService.stopIncomingRingtone();
+        setIncomingCall(null);
+      };
+
+      const handleCallEnded = () => {
+        console.log('[APP] Call ended event received');
+        soundService.stopIncomingRingtone();
+        setIncomingCall(null);
       };
 
       const handleIncomingNotification = (notifData?: any) => {
@@ -297,21 +323,28 @@ export default function App() {
       };
 
       socket.on('call:incoming', handleIncomingCall);
+      socket.on('call:rejected', handleCallRejected);
+      socket.on('call:ended', handleCallEnded);
       socket.on('notification:new', handleIncomingNotification);
 
       return () => {
         socket.off('call:incoming', handleIncomingCall);
+        socket.off('call:rejected', handleCallRejected);
+        socket.off('call:ended', handleCallEnded);
         socket.off('notification:new', handleIncomingNotification);
+        soundService.stopIncomingRingtone();
         removeNotificationListeners();
         stopLocationPinger();
       };
     } else {
       disconnectSocket();
       stopLocationPinger();
+      soundService.stopIncomingRingtone();
     }
   }, [currentUser?.id]);
 
   const handleAcceptIncomingCall = (callType: 'audio' | 'video', callId: string) => {
+    soundService.stopIncomingRingtone();
     if (!incomingCall) return;
 
     const existing = profiles.find((p) => p.id === incomingCall.fromUserId);
@@ -341,6 +374,7 @@ export default function App() {
   };
 
   const handleDeclineIncomingCall = (callId: string) => {
+    soundService.stopIncomingRingtone();
     if (!incomingCall) return;
     const socket = getSocket();
     socket?.emit('call:reject', {
@@ -352,6 +386,8 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    soundService.stopIncomingRingtone();
+    soundService.stopOutgoingRingback();
     disconnectSocket();
     stopLocationPinger();
     setAuthToken(null);

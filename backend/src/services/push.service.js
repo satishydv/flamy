@@ -35,6 +35,7 @@ export async function sendExpoPushNotification({
   data = {},
   sound = "default",
   badge,
+  channelId = "default",
 }) {
   try {
     if (!to) {
@@ -57,7 +58,7 @@ export async function sendExpoPushNotification({
       body,
       data,
       priority: "high",
-      channelId: "default",
+      channelId: channelId || "default",
       ...(typeof badge === "number" ? { badge } : {}),
     }));
 

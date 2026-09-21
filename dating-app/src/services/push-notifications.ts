@@ -3,7 +3,7 @@ import type * as NotificationsType from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import { isRunningInExpoGo } from 'expo';
-import { API_ENDPOINTS } from '@/constants/api';
+import { API_ENDPOINTS, getAuthHeaders } from '@/constants/api';
 
 // Android remote push notifications via expo-notifications were removed from Expo Go starting with SDK 53.
 // Statically importing expo-notifications executes auto-registration that throws a fatal error in Expo Go on Android.
@@ -38,7 +38,7 @@ if (Notifications?.setNotificationHandler) {
 /**
  * Register device for OS-level push notifications and persist expoPushToken to PostgreSQL
  */
-export async function registerForPushNotificationsAsync(): Promise<string | null> {
+export async function registerForPushNotificationsAsync(userId?: string): Promise<string | null> {
   if (Platform.OS === 'web') {
     console.log('[PUSH NOTIFICATIONS] Web platform: skipping native push registration.');
     return null;
@@ -61,11 +61,24 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
     try {
       await Notifications.setNotificationChannelAsync('default', {
         name: 'Matches & Messages',
-        importance: Notifications.AndroidImportance.MAX,
+        importance: Notifications.AndroidImportance.HIGH,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#0284C7',
         enableLights: true,
         enableVibrate: true,
+        showBadge: true,
+      });
+
+      await Notifications.setNotificationChannelAsync('incoming-calls', {
+        name: 'Incoming Phone & Video Calls',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 1000, 500, 1000, 500, 1000],
+        lightColor: '#FE3C72',
+        enableLights: true,
+        enableVibrate: true,
+        sound: 'ringtone.wav',
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        bypassDnd: true,
         showBadge: true,
       });
     } catch (channelErr) {
@@ -134,13 +147,19 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
 
     // Persist token to user record in PostgreSQL backend
     if (token) {
-      await fetch(API_ENDPOINTS.savePushToken, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
-      });
-      console.log('[PUSH NOTIFICATIONS] Push token synced to backend successfully.');
+      try {
+        const headers = getAuthHeaders({ 'Content-Type': 'application/json' });
+        const res = await fetch(API_ENDPOINTS.savePushToken, {
+          method: 'POST',
+          credentials: 'include',
+          headers,
+          body: JSON.stringify({ token, userId }),
+        });
+        const data = await res.json().catch(() => null);
+        console.log('[PUSH NOTIFICATIONS] Push token synced to backend successfully:', data);
+      } catch (syncErr) {
+        console.warn('[PUSH NOTIFICATIONS] Push token sync warning:', syncErr);
+      }
     }
 
     return token;
@@ -153,6 +172,7 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
 export interface NotificationHandlers {
   onNotificationReceived?: (notification: NotificationsType.Notification) => void;
   onNotificationResponse?: (response: NotificationsType.NotificationResponse) => void;
+  onIncomingCallNotification?: (callData: any) => void;
 }
 
 /**
@@ -167,12 +187,20 @@ export function setupNotificationListeners(handlers: NotificationHandlers) {
       if (handlers.onNotificationReceived) {
         handlers.onNotificationReceived(notification);
       }
+      const data = notification.request.content.data;
+      if (data?.type === 'incoming_call') {
+        handlers.onIncomingCallNotification?.(data);
+      }
     });
 
     const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
       console.log('[PUSH NOTIFICATIONS] User tapped push notification:', response.notification.request.content);
       if (handlers.onNotificationResponse) {
         handlers.onNotificationResponse(response);
+      }
+      const data = response.notification.request.content.data;
+      if (data?.type === 'incoming_call') {
+        handlers.onIncomingCallNotification?.(data);
       }
     });
 

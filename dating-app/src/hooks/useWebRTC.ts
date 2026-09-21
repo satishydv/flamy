@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Platform, Alert } from 'react-native';
 import { getSocket } from '@/services/socket';
+import { soundService } from '@/services/sound.service';
 
 // Conditional native WebRTC load to avoid crashes in Expo Go sandbox
 let RTCPeerConnectionModule: any = null;
@@ -37,7 +38,7 @@ export type CallStatus = 'idle' | 'calling' | 'ringing' | 'connected' | 'ended';
 interface UseWebRTCOptions {
   partnerId: string;
   currentUser?: { id: string; name?: string; image?: any };
-  onCallEnded?: (duration: number) => void;
+  onCallEnded?: (duration: number, reason?: 'ended' | 'declined' | 'unavailable') => void;
   onCallConnected?: () => void;
 }
 
@@ -85,6 +86,8 @@ export function useWebRTC({
 
   // Cleanup all active connections and timers
   const cleanup = useCallback(() => {
+    soundService.stopOutgoingRingback();
+    soundService.stopIncomingRingtone();
     stopLocalTracks();
     if (pcRef.current) {
       try {
@@ -243,6 +246,7 @@ export function useWebRTC({
 
     // Recipient accepted call -> ONLY CALLER generates SDP Offer
     const handleAccepted = async (data: { isDemoSimulation?: boolean }) => {
+      soundService.stopOutgoingRingback();
       setCallStatus('connected');
       onCallConnected?.();
 
@@ -272,15 +276,23 @@ export function useWebRTC({
     };
 
     // Call was rejected by callee
-    const handleRejected = () => {
+    const handleRejected = (data?: { reason?: string }) => {
+      soundService.stopOutgoingRingback();
+      soundService.playDeclinedTone();
       setCallStatus('ended');
+      setActiveCallType('none');
       cleanup();
+      onCallEnded?.(0, 'declined');
     };
 
     // Recipient is offline or busy
     const handleUnavailable = () => {
+      soundService.stopOutgoingRingback();
+      soundService.playDeclinedTone();
       setCallStatus('ended');
+      setActiveCallType('none');
       cleanup();
+      onCallEnded?.(0, 'unavailable');
     };
 
     // WebRTC Signaling packet (Offer / Answer / ICE Candidate)
@@ -351,10 +363,13 @@ export function useWebRTC({
 
     // Partner ended call
     const handleEnded = ({ duration: finalDur }: { duration?: number }) => {
+      soundService.stopOutgoingRingback();
+      soundService.stopIncomingRingtone();
       setCallStatus('ended');
+      setActiveCallType('none');
       const timeSpent = finalDur || durationRef.current;
       cleanup();
-      onCallEnded?.(timeSpent);
+      onCallEnded?.(timeSpent, 'ended');
     };
 
     socket.on('call:ringing', handleRinging);
@@ -382,6 +397,9 @@ export function useWebRTC({
       setActiveCallType(type);
       setCallStatus('calling');
       setDuration(0);
+
+      // Play outgoing ringback audio ("tuut... tuut...")
+      soundService.playOutgoingRingback();
 
       const stream = await acquireMedia(type);
       const pc = createPeerConnection();
@@ -415,6 +433,8 @@ export function useWebRTC({
       setCallStatus('connected');
       setDuration(0);
 
+      soundService.stopIncomingRingtone();
+
       const stream = await acquireMedia(type);
       const pc = createPeerConnection();
 
@@ -441,6 +461,8 @@ export function useWebRTC({
   // Reject an incoming call
   const rejectCall = useCallback(
     (callId: string, reason = 'declined') => {
+      soundService.stopOutgoingRingback();
+      soundService.stopIncomingRingtone();
       const socket = getSocket();
       socket?.emit('call:reject', {
         toUserId: partnerId,
@@ -448,6 +470,7 @@ export function useWebRTC({
         reason,
       });
       setCallStatus('ended');
+      setActiveCallType('none');
       cleanup();
     },
     [partnerId, cleanup]
@@ -464,12 +487,24 @@ export function useWebRTC({
         duration: finalDur,
         type: activeCallType,
       });
+
+      // If caller cancels before callee answers
+      if (callStatus === 'calling' || callStatus === 'ringing') {
+        socket?.emit('call:reject', {
+          toUserId: partnerId,
+          callId,
+          reason: 'cancelled',
+        });
+      }
+
+      soundService.stopOutgoingRingback();
+      soundService.stopIncomingRingtone();
       setCallStatus('ended');
       setActiveCallType('none');
       cleanup();
-      onCallEnded?.(finalDur);
+      onCallEnded?.(finalDur, 'ended');
     },
-    [partnerId, activeCallType, cleanup, onCallEnded]
+    [partnerId, activeCallType, callStatus, cleanup, onCallEnded]
   );
 
   // Toggle Microphone

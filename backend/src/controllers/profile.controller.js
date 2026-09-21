@@ -1157,7 +1157,7 @@ export const updateLocationAndCheckProximityController = async (req, res) => {
  */
 export const savePushTokenController = async (req, res) => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.id || req.body?.userId;
     if (!userId) {
       return res.status(401).json({ success: false, message: "Unauthorized." });
     }
