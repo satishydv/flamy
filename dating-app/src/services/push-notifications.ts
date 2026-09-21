@@ -204,7 +204,7 @@ export async function registerCallNotificationCategory() {
         buttonTitle: 'Decline ✕',
         options: {
           isDestructive: true,
-          opensAppToForeground: false,
+          opensAppToForeground: true,
         },
       },
     ]);
@@ -213,6 +213,8 @@ export async function registerCallNotificationCategory() {
     console.warn('[PUSH NOTIFICATIONS] Category registration notice:', err);
   }
 }
+
+let activeNotificationCallId: string | null = null;
 
 /**
  * Present an immediate Heads-Up incoming call notification banner on Android & iOS
@@ -224,6 +226,13 @@ export async function presentIncomingCallNotification(callData: {
   callerInfo?: { id?: string; name?: string; image?: string; location?: string };
 }): Promise<string | null> {
   if (Platform.OS === 'web' || !Notifications) return null;
+  if (!callData?.callId) return null;
+
+  // Prevent multiple duplicate notifications for the same callId
+  if (activeNotificationCallId === callData.callId) {
+    return activeNotificationCallId;
+  }
+  activeNotificationCallId = callData.callId;
 
   try {
     await setupNotificationChannels();
@@ -243,6 +252,7 @@ export async function presentIncomingCallNotification(callData: {
           fromUserId: callData.fromUserId,
           callerInfo: callData.callerInfo,
           callType: callData.type || 'audio',
+          _isLocalNotification: true,
         },
         categoryIdentifier: 'incoming_call',
         priority: Notifications.AndroidNotificationPriority.MAX,
@@ -268,6 +278,7 @@ export async function presentIncomingCallNotification(callData: {
  * Dismiss the active incoming call notification from Android tray / lockscreen
  */
 export async function dismissIncomingCallNotification(callId?: string) {
+  activeNotificationCallId = null;
   if (Platform.OS === 'web' || !Notifications) return;
   try {
     if (callId) {
@@ -295,24 +306,21 @@ export function setupNotificationListeners(handlers: NotificationHandlers) {
 
   try {
     const receivedSub = Notifications.addNotificationReceivedListener((notification) => {
-      console.log('[PUSH NOTIFICATIONS] Foreground push received:', notification.request.content);
+      const data = notification.request.content.data;
+      console.log('[PUSH NOTIFICATIONS] Notification received:', data?.type);
       if (handlers.onNotificationReceived) {
         handlers.onNotificationReceived(notification);
       }
-      const data = notification.request.content.data;
-      if (data?.type === 'incoming_call') {
+      // Only notify app if this is NOT a locally-scheduled notification loop
+      if (data?.type === 'incoming_call' && !data?._isLocalNotification) {
         handlers.onIncomingCallNotification?.(data);
       }
     });
 
     const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
-      console.log('[PUSH NOTIFICATIONS] User tapped push notification:', response.notification.request.content);
+      console.log('[PUSH NOTIFICATIONS] User interacted with notification:', response.actionIdentifier);
       if (handlers.onNotificationResponse) {
         handlers.onNotificationResponse(response);
-      }
-      const data = response.notification.request.content.data;
-      if (data?.type === 'incoming_call') {
-        handlers.onIncomingCallNotification?.(data);
       }
     });
 

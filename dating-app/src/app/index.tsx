@@ -319,6 +319,9 @@ export default function App() {
         onIncomingCallNotification: (callData) => {
           console.log('[APP] Push incoming call event received:', callData);
           if (callData?.callId && callData?.fromUserId) {
+            if (activeIncomingCallRef.current?.callId === callData.callId) {
+              return;
+            }
             const normalizedData: IncomingCallData = {
               callId: callData.callId,
               fromUserId: callData.fromUserId,
@@ -328,13 +331,15 @@ export default function App() {
             activeIncomingCallRef.current = normalizedData;
             setIncomingCall(normalizedData);
             soundService.playIncomingRingtone();
-            presentIncomingCallNotification(normalizedData);
           }
         },
       });
 
       const handleIncomingCall = (callData: IncomingCallData) => {
         console.log('[APP] Incoming call event received:', callData);
+        if (activeIncomingCallRef.current?.callId === callData.callId) {
+          return;
+        }
         activeIncomingCallRef.current = callData;
         setIncomingCall(callData);
         soundService.playIncomingRingtone();

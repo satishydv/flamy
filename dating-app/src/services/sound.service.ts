@@ -16,11 +16,17 @@ class SoundService {
   private outgoingPlayer: any = null;
   private isIncomingPlaying = false;
   private isOutgoingPlaying = false;
+  private allIncomingPlayers = new Set<any>();
 
   /**
    * Play incoming ringtone on loop + continuous phone vibration
    */
   async playIncomingRingtone() {
+    // If already actively ringing, do not spawn another player
+    if (this.isIncomingPlaying && this.incomingPlayer) {
+      return;
+    }
+
     try {
       await this.stopIncomingRingtone();
       this.isIncomingPlaying = true;
@@ -41,15 +47,22 @@ class SoundService {
             }).catch(() => {});
           }
 
+          if (!this.isIncomingPlaying) return;
+
           const player = ExpoAudio.createAudioPlayer(RINGTONE_ASSET);
           player.loop = true;
           player.volume = 1.0;
           this.incomingPlayer = player;
+          this.allIncomingPlayers.add(player);
 
           if (this.isIncomingPlaying) {
             player.play();
           } else {
-            try { player.remove(); } catch (e) {}
+            try {
+              player.pause();
+              player.remove();
+            } catch (e) {}
+            this.allIncomingPlayers.delete(player);
           }
         } catch (audioErr) {
           console.log('[SOUND SERVICE] Native incoming ringtone notice:', audioErr);
@@ -59,6 +72,7 @@ class SoundService {
           const webAudio = new Audio(RINGTONE_ASSET);
           webAudio.loop = true;
           this.incomingPlayer = webAudio;
+          this.allIncomingPlayers.add(webAudio);
           if (this.isIncomingPlaying) {
             webAudio.play().catch(() => {});
           }
@@ -76,6 +90,13 @@ class SoundService {
     this.isIncomingPlaying = false;
     try {
       Vibration.cancel();
+      for (const p of this.allIncomingPlayers) {
+        try {
+          if (typeof p.pause === 'function') p.pause();
+          if (typeof p.remove === 'function') p.remove();
+        } catch (e) {}
+      }
+      this.allIncomingPlayers.clear();
       if (this.incomingPlayer) {
         const p = this.incomingPlayer;
         this.incomingPlayer = null;
