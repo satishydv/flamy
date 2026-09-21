@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
@@ -23,7 +23,12 @@ import { MessagesScreen } from '@/components/screens/messages-screen';
 import { API_ENDPOINTS, getAuthHeaders, setAuthToken, getAuthToken } from '@/constants/api';
 import { connectSocket, disconnectSocket, getSocket, IncomingCallData } from '@/services/socket';
 import { startLocationPinger, stopLocationPinger } from '@/services/location-pinger';
-import { registerForPushNotificationsAsync, setupNotificationListeners } from '@/services/push-notifications';
+import {
+  registerForPushNotificationsAsync,
+  setupNotificationListeners,
+  presentIncomingCallNotification,
+  dismissIncomingCallNotification,
+} from '@/services/push-notifications';
 import { soundService } from '@/services/sound.service';
 
 export interface AuthUser {
@@ -48,6 +53,7 @@ export default function App() {
   const [activeRequestProfile, setActiveRequestProfile] = useState<Profile | null>(null);
   const [activeCallType, setActiveCallType] = useState<'none' | 'audio' | 'video'>('none');
   const [incomingCall, setIncomingCall] = useState<IncomingCallData | null>(null);
+  const activeIncomingCallRef = useRef<IncomingCallData | null>(null);
   const [isIncomingCallAccepted, setIsIncomingCallAccepted] = useState<boolean>(false);
   const [acceptedCallId, setAcceptedCallId] = useState<string>('');
   const [likesCount, setLikesCount] = useState<number>(0);
@@ -270,7 +276,34 @@ export default function App() {
       // Listen for lockscreen/system notification taps & incoming call pushes
       const removeNotificationListeners = setupNotificationListeners({
         onNotificationResponse: (response) => {
-          const data = response.notification.request.content.data;
+          const data = (response.notification.request.content.data || {}) as Record<string, any>;
+          const actionId = response.actionIdentifier;
+          console.log('[APP] Notification response clicked:', actionId, data);
+          if (data?.type === 'incoming_call') {
+            const callId = String(data.callId || '');
+            const callType: 'audio' | 'video' = data.callType === 'video' ? 'video' : 'audio';
+            if (actionId === 'accept') {
+              handleAcceptIncomingCall(callType, callId, {
+                fromUserId: data.fromUserId,
+                callerInfo: data.callerInfo,
+              });
+            } else if (actionId === 'decline') {
+              handleDeclineIncomingCall(callId, data.fromUserId);
+            } else {
+              // Tapped the notification banner itself -> bring up IncomingCallModal
+              const incomingData: IncomingCallData = {
+                callId,
+                fromUserId: String(data.fromUserId || ''),
+                type: callType,
+                callerInfo: data.callerInfo || { id: String(data.fromUserId || ''), name: 'Caller' },
+              };
+              activeIncomingCallRef.current = incomingData;
+              setIncomingCall(incomingData);
+              soundService.playIncomingRingtone();
+            }
+            return;
+          }
+
           if (data?.type === 'match' || data?.type === 'message') {
             const partnerId = data.partnerId || data.profileId;
             if (partnerId) {
@@ -286,32 +319,41 @@ export default function App() {
         onIncomingCallNotification: (callData) => {
           console.log('[APP] Push incoming call event received:', callData);
           if (callData?.callId && callData?.fromUserId) {
-            setIncomingCall({
+            const normalizedData: IncomingCallData = {
               callId: callData.callId,
               fromUserId: callData.fromUserId,
               type: callData.callType || 'audio',
               callerInfo: callData.callerInfo || { id: callData.fromUserId, name: 'Caller' },
-            });
+            };
+            activeIncomingCallRef.current = normalizedData;
+            setIncomingCall(normalizedData);
             soundService.playIncomingRingtone();
+            presentIncomingCallNotification(normalizedData);
           }
         },
       });
 
       const handleIncomingCall = (callData: IncomingCallData) => {
         console.log('[APP] Incoming call event received:', callData);
+        activeIncomingCallRef.current = callData;
         setIncomingCall(callData);
         soundService.playIncomingRingtone();
+        presentIncomingCallNotification(callData);
       };
 
       const handleCallRejected = (data: any) => {
         console.log('[APP] Call rejected or cancelled by other user:', data);
         soundService.stopIncomingRingtone();
+        dismissIncomingCallNotification(data?.callId || activeIncomingCallRef.current?.callId);
+        activeIncomingCallRef.current = null;
         setIncomingCall(null);
       };
 
       const handleCallEnded = () => {
         console.log('[APP] Call ended event received');
         soundService.stopIncomingRingtone();
+        dismissIncomingCallNotification(activeIncomingCallRef.current?.callId);
+        activeIncomingCallRef.current = null;
         setIncomingCall(null);
       };
 
@@ -333,6 +375,7 @@ export default function App() {
         socket.off('call:ended', handleCallEnded);
         socket.off('notification:new', handleIncomingNotification);
         soundService.stopIncomingRingtone();
+        dismissIncomingCallNotification();
         removeNotificationListeners();
         stopLocationPinger();
       };
@@ -340,20 +383,32 @@ export default function App() {
       disconnectSocket();
       stopLocationPinger();
       soundService.stopIncomingRingtone();
+      dismissIncomingCallNotification();
     }
   }, [currentUser?.id]);
 
-  const handleAcceptIncomingCall = (callType: 'audio' | 'video', callId: string) => {
+  const handleAcceptIncomingCall = (
+    callType: 'audio' | 'video',
+    callId: string,
+    callerData?: { fromUserId: string; callerInfo?: any }
+  ) => {
     soundService.stopIncomingRingtone();
-    if (!incomingCall) return;
+    dismissIncomingCallNotification(callId || activeIncomingCallRef.current?.callId);
 
-    const existing = profiles.find((p) => p.id === incomingCall.fromUserId);
+    const fromUserId =
+      callerData?.fromUserId || incomingCall?.fromUserId || activeIncomingCallRef.current?.fromUserId;
+    if (!fromUserId) return;
+
+    const callerInfo =
+      callerData?.callerInfo || incomingCall?.callerInfo || activeIncomingCallRef.current?.callerInfo;
+
+    const existing = profiles.find((p) => p.id === fromUserId);
     const callerProfile: Profile = existing || {
-      id: incomingCall.fromUserId,
-      name: incomingCall.callerInfo?.name || 'Your Match',
+      id: fromUserId,
+      name: callerInfo?.name || 'Your Match',
       age: 24,
-      image: incomingCall.callerInfo?.image || '',
-      location: incomingCall.callerInfo?.location || 'Mutual Match',
+      image: callerInfo?.image || '',
+      location: callerInfo?.location || 'Mutual Match',
       distance: 'Nearby',
       bio: '',
       jobTitle: '',
@@ -366,6 +421,7 @@ export default function App() {
       category: 'online',
     };
 
+    activeIncomingCallRef.current = null;
     setIncomingCall(null);
     setIsIncomingCallAccepted(true);
     setAcceptedCallId(callId);
@@ -373,15 +429,23 @@ export default function App() {
     setActiveCallType(callType);
   };
 
-  const handleDeclineIncomingCall = (callId: string) => {
+  const handleDeclineIncomingCall = (callId: string, fromUserId?: string) => {
     soundService.stopIncomingRingtone();
-    if (!incomingCall) return;
-    const socket = getSocket();
-    socket?.emit('call:reject', {
-      toUserId: incomingCall.fromUserId,
-      callId,
-      reason: 'declined',
-    });
+    dismissIncomingCallNotification(callId || activeIncomingCallRef.current?.callId);
+
+    const targetUserId =
+      fromUserId || incomingCall?.fromUserId || activeIncomingCallRef.current?.fromUserId;
+
+    if (targetUserId) {
+      const socket = getSocket();
+      socket?.emit('call:reject', {
+        toUserId: targetUserId,
+        callId: callId || activeIncomingCallRef.current?.callId || '',
+        reason: 'declined',
+      });
+    }
+
+    activeIncomingCallRef.current = null;
     setIncomingCall(null);
   };
 

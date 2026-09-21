@@ -58,32 +58,7 @@ export async function registerForPushNotificationsAsync(userId?: string): Promis
 
   // Set up high-priority notification channel for Android
   if (Platform.OS === 'android') {
-    try {
-      await Notifications.setNotificationChannelAsync('default', {
-        name: 'Matches & Messages',
-        importance: Notifications.AndroidImportance.HIGH,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#0284C7',
-        enableLights: true,
-        enableVibrate: true,
-        showBadge: true,
-      });
-
-      await Notifications.setNotificationChannelAsync('incoming-calls', {
-        name: 'Incoming Phone & Video Calls',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 1000, 500, 1000, 500, 1000],
-        lightColor: '#FE3C72',
-        enableLights: true,
-        enableVibrate: true,
-        sound: 'ringtone.wav',
-        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-        bypassDnd: true,
-        showBadge: true,
-      });
-    } catch (channelErr) {
-      console.log('[PUSH NOTIFICATIONS] Android channel creation notice:', channelErr);
-    }
+    await setupNotificationChannels();
   }
 
   // Push notifications work on physical devices (and in Expo Go on real devices)
@@ -166,6 +141,144 @@ export async function registerForPushNotificationsAsync(userId?: string): Promis
   } catch (error: any) {
     console.warn('[PUSH NOTIFICATIONS] Registration notice:', error?.message || error);
     return null;
+  }
+}
+
+let isChannelSetUp = false;
+
+/**
+ * Configure Android notification channels with MAX priority for incoming calls
+ */
+export async function setupNotificationChannels() {
+  if (Platform.OS !== 'android' || !Notifications) return;
+  if (isChannelSetUp) return;
+
+  try {
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'Matches & Messages',
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#0284C7',
+      enableLights: true,
+      enableVibrate: true,
+      showBadge: true,
+    });
+
+    await Notifications.setNotificationChannelAsync('incoming-calls', {
+      name: 'Incoming Phone & Video Calls',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 1000, 500, 1000, 500, 1000],
+      lightColor: '#FE3C72',
+      enableLights: true,
+      enableVibrate: true,
+      sound: 'ringtone.wav',
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      bypassDnd: true,
+      showBadge: true,
+    });
+    isChannelSetUp = true;
+  } catch (channelErr) {
+    console.log('[PUSH NOTIFICATIONS] Android channel creation notice:', channelErr);
+  }
+}
+
+let isCategoryRegistered = false;
+
+/**
+ * Register interactive incoming call actions (Accept / Decline) for Android & iOS
+ */
+export async function registerCallNotificationCategory() {
+  if (Platform.OS === 'web' || !Notifications) return;
+  if (isCategoryRegistered) return;
+
+  try {
+    await Notifications.setNotificationCategoryAsync('incoming_call', [
+      {
+        identifier: 'accept',
+        buttonTitle: 'Accept 📞',
+        options: {
+          opensAppToForeground: true,
+        },
+      },
+      {
+        identifier: 'decline',
+        buttonTitle: 'Decline ✕',
+        options: {
+          isDestructive: true,
+          opensAppToForeground: false,
+        },
+      },
+    ]);
+    isCategoryRegistered = true;
+  } catch (err) {
+    console.warn('[PUSH NOTIFICATIONS] Category registration notice:', err);
+  }
+}
+
+/**
+ * Present an immediate Heads-Up incoming call notification banner on Android & iOS
+ */
+export async function presentIncomingCallNotification(callData: {
+  callId: string;
+  fromUserId: string;
+  type?: 'audio' | 'video';
+  callerInfo?: { id?: string; name?: string; image?: string; location?: string };
+}): Promise<string | null> {
+  if (Platform.OS === 'web' || !Notifications) return null;
+
+  try {
+    await setupNotificationChannels();
+    await registerCallNotificationCategory();
+
+    const callType = callData.type === 'video' ? 'Video' : 'Voice';
+    const callerName = callData.callerInfo?.name || 'Someone';
+
+    const notifId = await Notifications.scheduleNotificationAsync({
+      identifier: callData.callId,
+      content: {
+        title: `📞 Incoming ${callType} Call`,
+        body: `${callerName} is calling you... Tap to answer`,
+        data: {
+          type: 'incoming_call',
+          callId: callData.callId,
+          fromUserId: callData.fromUserId,
+          callerInfo: callData.callerInfo,
+          callType: callData.type || 'audio',
+        },
+        categoryIdentifier: 'incoming_call',
+        priority: Notifications.AndroidNotificationPriority.MAX,
+        sticky: true,
+        autoDismiss: false,
+        sound: 'ringtone.wav',
+        vibrate: [0, 1000, 500, 1000, 500, 1000],
+      },
+      trigger: {
+        channelId: 'incoming-calls',
+      },
+    });
+
+    console.log('[PUSH NOTIFICATIONS] Presented incoming call notification:', notifId);
+    return notifId;
+  } catch (err) {
+    console.error('[PUSH NOTIFICATIONS] Failed to present incoming call notification:', err);
+    return null;
+  }
+}
+
+/**
+ * Dismiss the active incoming call notification from Android tray / lockscreen
+ */
+export async function dismissIncomingCallNotification(callId?: string) {
+  if (Platform.OS === 'web' || !Notifications) return;
+  try {
+    if (callId) {
+      await Notifications.dismissNotificationAsync(callId);
+    } else {
+      await Notifications.dismissAllNotificationsAsync();
+    }
+    console.log('[PUSH NOTIFICATIONS] Dismissed notification for call:', callId);
+  } catch (err) {
+    console.warn('[PUSH NOTIFICATIONS] Error dismissing notification:', err);
   }
 }
 
