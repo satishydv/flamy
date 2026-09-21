@@ -34,6 +34,11 @@ if (Notifications?.setNotificationHandler) {
   }
 }
 
+// Automatically prepare Android notification channels on module load
+if (Platform.OS === 'android' && Notifications) {
+  setupNotificationChannels().catch(() => {});
+}
+
 /**
  * Register device for OS-level push notifications and persist expoPushToken to PostgreSQL
  */
@@ -289,6 +294,76 @@ export async function dismissIncomingCallNotification(callId?: string) {
     console.log('[PUSH NOTIFICATIONS] Dismissed notification for call:', callId);
   } catch (err) {
     console.warn('[PUSH NOTIFICATIONS] Error dismissing notification:', err);
+  }
+}
+
+/**
+ * Present a standard Heads-Up OS-level notification banner in Android/iOS notification center.
+ * Displays with high priority, default sound, vibration, and autoDismiss.
+ */
+export async function presentStandardNotification({
+  id,
+  title,
+  body,
+  data = {},
+  channelId = 'default',
+}: {
+  id?: string;
+  title: string;
+  body: string;
+  data?: Record<string, any>;
+  channelId?: string;
+}): Promise<string | null> {
+  if (Platform.OS === 'web' || !Notifications) return null;
+  if (!title && !body) return null;
+
+  try {
+    await setupNotificationChannels();
+
+    const notifId = await Notifications.scheduleNotificationAsync({
+      identifier: id ? String(id) : undefined,
+      content: {
+        title,
+        body,
+        data: {
+          ...data,
+          _isStandardNotification: true,
+        },
+        sound: 'default',
+        priority: Notifications.AndroidNotificationPriority.HIGH,
+        autoDismiss: true,
+        sticky: false,
+        vibrate: [0, 250, 250, 250],
+      },
+      trigger: {
+        channelId: channelId || 'default',
+      },
+    });
+
+    console.log('[PUSH NOTIFICATIONS] Presented standard OS notification:', notifId, title);
+    return notifId;
+  } catch (err) {
+    console.warn('[PUSH NOTIFICATIONS] Failed to present standard notification:', err);
+    return null;
+  }
+}
+
+/**
+ * Dismiss all system notifications from the device's notification center/tray.
+ * 
+ * IMPORTANT ARCHITECTURAL SEPARATION:
+ * This strictly clears OS-level notifications from the phone's notification shade.
+ * It NEVER makes any network calls or marks notifications as read in the database.
+ * In-app unread badges, dot indicators, and unread notification rows remain preserved.
+ */
+export async function dismissAllSystemNotifications() {
+  if (Platform.OS === 'web' || !Notifications) return;
+  try {
+    await Notifications.dismissAllNotificationsAsync();
+    await Notifications.setBadgeCountAsync(0).catch(() => {});
+    console.log('[PUSH NOTIFICATIONS] Automatically cleared delivered notifications from phone tray.');
+  } catch (err) {
+    console.warn('[PUSH NOTIFICATIONS] Error clearing system notifications:', err);
   }
 }
 

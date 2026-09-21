@@ -28,6 +28,8 @@ import {
   setupNotificationListeners,
   presentIncomingCallNotification,
   dismissIncomingCallNotification,
+  presentStandardNotification,
+  dismissAllSystemNotifications,
 } from '@/services/push-notifications';
 import { soundService } from '@/services/sound.service';
 
@@ -59,6 +61,44 @@ export default function App() {
   const [likesCount, setLikesCount] = useState<number>(0);
   const [matchesCount, setMatchesCount] = useState<number>(0);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState<number>(0);
+
+  // References to track active navigation & chat state without stale closures in socket handlers
+  const activeChatProfileRef = useRef<Profile | null>(null);
+  const isNotificationsScreenRef = useRef<boolean>(false);
+  const profilesRef = useRef<Profile[]>([]);
+
+  useEffect(() => {
+    activeChatProfileRef.current = activeChatProfile;
+  }, [activeChatProfile]);
+
+  useEffect(() => {
+    isNotificationsScreenRef.current = isNotificationsScreen;
+  }, [isNotificationsScreen]);
+
+  useEffect(() => {
+    profilesRef.current = profiles;
+  }, [profiles]);
+
+  // Standard app behavior: dismiss all delivered system notifications when the app is opened or resumed.
+  // Crucially, this ONLY clears the phone's notification shade and NEVER marks DB records as read.
+  useEffect(() => {
+    // Initial mount clearance
+    dismissAllSystemNotifications();
+
+    const appStateSub = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        console.log('[APP] App became active: clearing system notification drawer.');
+        dismissAllSystemNotifications();
+        // Refresh in-app badge counts while keeping DB unread state intact
+        fetchCounts();
+      }
+    });
+
+    return () => {
+      appStateSub.remove();
+    };
+  }, []);
+
   const [userPreferences, setUserPreferences] = useState<UserPreferences>({
     datingGoal: 'Long-Term Dating',
     personality: 'Extroverted & Energetic',
@@ -307,12 +347,23 @@ export default function App() {
           if (data?.type === 'match' || data?.type === 'message') {
             const partnerId = data.partnerId || data.profileId;
             if (partnerId) {
-              const target = profiles.find((p) => p.id === partnerId);
+              const target = profilesRef.current.find((p) => p.id === partnerId);
               if (target) {
                 setActiveChatProfile(target);
+              } else {
+                setActiveTab('messages');
               }
+            } else {
+              setActiveTab('messages');
             }
-          } else if (data?.type === 'crossed' || data?.type === 'request') {
+          } else if (
+            data?.type === 'crossed' ||
+            data?.type === 'request' ||
+            data?.type === 'recommendation' ||
+            data?.type === 'system'
+          ) {
+            setIsNotificationsScreen(true);
+          } else {
             setIsNotificationsScreen(true);
           }
         },
@@ -370,10 +421,76 @@ export default function App() {
         setIncomingCall(null);
       };
 
+      // Set to track recent notifications and prevent duplicates between socket events
+      const recentNotifTimestamps = new Map<string, number>();
+
       const handleIncomingNotification = (notifData?: any) => {
+        console.log('[APP] Received notification:new event:', notifData?.id, notifData?.type);
         setUnreadNotificationsCount((prev) => prev + 1);
-        if (notifData?.type === 'crossed') {
-          fetchCounts();
+        fetchCounts();
+
+        const notifIdKey = String(notifData?.id || `${notifData?.type}_${Date.now()}`);
+        const now = Date.now();
+        if (recentNotifTimestamps.has(notifIdKey) && now - (recentNotifTimestamps.get(notifIdKey) || 0) < 4000) {
+          return;
+        }
+        recentNotifTimestamps.set(notifIdKey, now);
+
+        // Standard notification behavior: show OS notification if outside app or not in notifications screen
+        const isOutsideApp = AppState.currentState !== 'active';
+        if (isOutsideApp || !isNotificationsScreenRef.current) {
+          presentStandardNotification({
+            id: `notif_${notifIdKey}`,
+            title: notifData?.title || 'New Notification',
+            body: notifData?.message || 'You have a new update in your app.',
+            data: {
+              type: notifData?.type || 'notification',
+              notificationId: notifData?.id,
+              partnerId: notifData?.profileId || notifData?.data?.partnerId,
+              ...(notifData?.data || {}),
+            },
+          });
+        }
+      };
+
+      const handleGlobalChatMessage = (payload: {
+        message: any;
+        partnerId: string;
+        isMessageRequest?: boolean;
+      }) => {
+        console.log('[APP] Global chat:new_message event received from:', payload?.partnerId);
+        fetchCounts();
+
+        const msgId = payload?.message?.id ? String(payload.message.id) : null;
+        const msgKey = msgId || `msg_${payload?.partnerId}_${Date.now()}`;
+        const now = Date.now();
+        if (recentNotifTimestamps.has(msgKey) && now - (recentNotifTimestamps.get(msgKey) || 0) < 4000) {
+          return;
+        }
+        recentNotifTimestamps.set(msgKey, now);
+
+        const isOutsideApp = AppState.currentState !== 'active';
+        const isCurrentlyInChat = activeChatProfileRef.current?.id === payload?.partnerId;
+
+        // If user is outside the app OR not currently in active chat with this partner:
+        if (isOutsideApp || !isCurrentlyInChat) {
+          const senderProfile = profilesRef.current.find((p) => p.id === payload?.partnerId);
+          const senderName = senderProfile?.name || 'New Message';
+          const previewText =
+            payload?.message?.text && payload.message.text.trim().length > 60
+              ? payload.message.text.trim().substring(0, 60) + '...'
+              : payload?.message?.text || 'Sent you a message';
+
+          presentStandardNotification({
+            id: `msg_${msgKey}`,
+            title: payload?.isMessageRequest ? `${senderName} 💌` : `${senderName} 💬`,
+            body: previewText,
+            data: {
+              type: payload?.isMessageRequest ? 'request' : 'message',
+              partnerId: payload?.partnerId,
+              messageId: msgId,
+            },
+          });
         }
       };
 
@@ -381,12 +498,14 @@ export default function App() {
       socket.on('call:rejected', handleCallRejected);
       socket.on('call:ended', handleCallEnded);
       socket.on('notification:new', handleIncomingNotification);
+      socket.on('chat:new_message', handleGlobalChatMessage);
 
       return () => {
         socket.off('call:incoming', handleIncomingCall);
         socket.off('call:rejected', handleCallRejected);
         socket.off('call:ended', handleCallEnded);
         socket.off('notification:new', handleIncomingNotification);
+        socket.off('chat:new_message', handleGlobalChatMessage);
         soundService.stopIncomingRingtone();
         dismissIncomingCallNotification();
         removeNotificationListeners();

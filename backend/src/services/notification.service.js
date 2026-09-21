@@ -128,6 +128,8 @@ export async function createAndSendNotification({
           notificationId: record.id,
           ...(data || {}),
         },
+        channelId: "default",
+        sound: "default",
       }).catch((pushErr) => {
         console.error("[NOTIFICATION SERVICE] Background push dispatch notice:", pushErr);
       });

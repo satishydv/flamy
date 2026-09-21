@@ -208,6 +208,16 @@ export const getChatMessagesController = async (req, res) => {
       orderBy: { createdAt: "asc" },
     });
 
+    // Mark unread incoming messages as read when the user actually opens the chat
+    await prisma.message.updateMany({
+      where: {
+        senderId: partnerId,
+        receiverId: currentUserId,
+        read: false,
+      },
+      data: { read: true },
+    }).catch(() => {});
+
     // Check match status for call authorization (strictly per messagerl.md)
     const isMatch = await prisma.match.findFirst({
       where: {
