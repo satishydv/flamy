@@ -36,6 +36,9 @@ export const IncomingCallModal: React.FC<IncomingCallModalProps> = ({
 }) => {
   const [ringTime, setRingTime] = useState(30);
 
+  const onDeclineRef = React.useRef(onDecline);
+  onDeclineRef.current = onDecline;
+
   // 30-second auto timeout if unaddressed
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;
@@ -44,7 +47,7 @@ export const IncomingCallModal: React.FC<IncomingCallModalProps> = ({
       timer = setInterval(() => {
         setRingTime((prev) => {
           if (prev <= 1) {
-            onDecline(callId);
+            onDeclineRef.current(callId);
             return 0;
           }
           return prev - 1;
@@ -54,7 +57,7 @@ export const IncomingCallModal: React.FC<IncomingCallModalProps> = ({
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [visible, callId, onDecline]);
+  }, [visible, callId]);
 
   if (!visible || !caller) return null;
 
@@ -65,6 +68,7 @@ export const IncomingCallModal: React.FC<IncomingCallModalProps> = ({
     <Modal
       visible={visible}
       transparent
+      statusBarTranslucent
       animationType="fade"
       onRequestClose={() => onDecline(callId)}
     >

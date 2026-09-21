@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Platform, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, Platform, ActivityIndicator, AppState } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
 import { useLocalSearchParams } from 'expo-router';
@@ -331,6 +331,10 @@ export default function App() {
             activeIncomingCallRef.current = normalizedData;
             setIncomingCall(normalizedData);
             soundService.playIncomingRingtone();
+
+            if (Platform.OS === 'android' && AppState.currentState !== 'active') {
+              Linking.openURL('datingapp://').catch(() => {});
+            }
           }
         },
       });
@@ -344,6 +348,10 @@ export default function App() {
         setIncomingCall(callData);
         soundService.playIncomingRingtone();
         presentIncomingCallNotification(callData);
+
+        if (Platform.OS === 'android' && AppState.currentState !== 'active') {
+          Linking.openURL('datingapp://').catch(() => {});
+        }
       };
 
       const handleCallRejected = (data: any) => {
