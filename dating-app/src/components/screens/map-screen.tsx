@@ -14,7 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle, Line, Rect } from 'react-native-svg';
 import { Profile } from '@/types';
-import { API_ENDPOINTS } from '@/constants/api';
+import { API_ENDPOINTS, getAuthHeaders } from '@/constants/api';
 
 interface MapScreenProps {
   profiles: Profile[];
@@ -22,6 +22,7 @@ interface MapScreenProps {
   onLikeProfile: (profile: Profile) => void;
   onUnlikeProfile?: (profile: Profile) => void;
   onOpenChat: (profile: Profile) => void;
+  onSelectProfile?: (profile: Profile) => void;
 }
 
 const { width } = Dimensions.get('window');
@@ -33,6 +34,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
   onLikeProfile,
   onUnlikeProfile,
   onOpenChat,
+  onSelectProfile,
 }) => {
   const [selectedTab, setSelectedTab] = useState<'all' | 'recent' | 'nearby' | 'hotspots'>('all');
   const [nearbyList, setNearbyList] = useState<Profile[]>(profiles);
@@ -46,6 +48,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
       setIsLoadingNearby(true);
       const res = await fetch(`${API_ENDPOINTS.getNearbyMatches}?category=${selectedTab}`, {
         credentials: 'include',
+        headers: getAuthHeaders(),
       });
       const data = await res.json();
       if (data?.isGhostMode) {
@@ -56,9 +59,16 @@ export const MapScreen: React.FC<MapScreenProps> = ({
         setIsGhostMode(false);
         const merged: Profile[] = data.profiles.map((p: any) => {
           const globalMatch = profiles.find((gp) => gp.id === p.id);
+          const resolvedImage =
+            p.image ||
+            p.photos?.[0]?.url ||
+            p.additionalImages?.[0] ||
+            globalMatch?.image ||
+            globalMatch?.photos?.[0]?.url ||
+            '';
           return {
             ...p,
-            image: p.image || '',
+            image: resolvedImage,
             liked: Boolean(p.liked || globalMatch?.liked),
             superLiked: Boolean(p.superLiked || globalMatch?.superLiked),
           };
@@ -247,11 +257,19 @@ export const MapScreen: React.FC<MapScreenProps> = ({
 
                   {/* Circular Avatar */}
                   <View style={[styles.pinAvatarRing, isSelected && styles.pinAvatarRingSelected]}>
-                    <Image
-                      source={typeof profile.image === 'string' ? { uri: profile.image } : profile.image}
-                      style={styles.pinAvatarImage}
-                      contentFit="cover"
-                    />
+                    {profile.image ? (
+                      <Image
+                        source={typeof profile.image === 'string' ? { uri: profile.image } : profile.image}
+                        style={styles.pinAvatarImage}
+                        contentFit="cover"
+                      />
+                    ) : (
+                      <View style={styles.pinAvatarFallback}>
+                        <Text style={styles.pinAvatarFallbackText}>
+                          {profile.name ? profile.name.slice(0, 2).toUpperCase() : '??'}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 </TouchableOpacity>
               );
@@ -264,29 +282,43 @@ export const MapScreen: React.FC<MapScreenProps> = ({
           <View style={styles.profileSheetCard}>
             {/* Header: Avatar, Name, Job, Location & Heart button */}
             <View style={styles.sheetTopRow}>
-              <Image
-                source={typeof selectedProfile.image === 'string' ? { uri: selectedProfile.image } : selectedProfile.image}
-                style={styles.sheetAvatar}
-                contentFit="cover"
-              />
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={styles.sheetTouchableInfo}
+                onPress={() => onSelectProfile && onSelectProfile(selectedProfile)}
+              >
+                {selectedProfile.image ? (
+                  <Image
+                    source={typeof selectedProfile.image === 'string' ? { uri: selectedProfile.image } : selectedProfile.image}
+                    style={styles.sheetAvatar}
+                    contentFit="cover"
+                  />
+                ) : (
+                  <View style={[styles.sheetAvatar, styles.sheetAvatarFallback]}>
+                    <Text style={styles.sheetAvatarFallbackText}>
+                      {selectedProfile.name ? selectedProfile.name.slice(0, 2).toUpperCase() : '??'}
+                    </Text>
+                  </View>
+                )}
 
-              <View style={styles.sheetMetaCol}>
-                <View style={styles.nameVerifiedRow}>
-                  <Text style={styles.sheetName}>
-                    {selectedProfile.name}, {selectedProfile.age}
-                  </Text>
-                  {selectedProfile.isVerified && (
-                    <Ionicons name="checkmark-circle" size={18} color="#0EA5E9" style={styles.verifiedIcon} />
-                  )}
+                <View style={styles.sheetMetaCol}>
+                  <View style={styles.nameVerifiedRow}>
+                    <Text style={styles.sheetName}>
+                      {selectedProfile.name}, {selectedProfile.age}
+                    </Text>
+                    {selectedProfile.isVerified && (
+                      <Ionicons name="checkmark-circle" size={18} color="#0EA5E9" style={styles.verifiedIcon} />
+                    )}
+                  </View>
+
+                  <Text style={styles.sheetJob}>{selectedProfile.jobTitle}</Text>
+
+                  <View style={styles.locationRow}>
+                    <Ionicons name="location-outline" size={13} color="#64748B" />
+                    <Text style={styles.sheetLocation}>{selectedProfile.location}</Text>
+                  </View>
                 </View>
-
-                <Text style={styles.sheetJob}>{selectedProfile.jobTitle}</Text>
-
-                <View style={styles.locationRow}>
-                  <Ionicons name="location-outline" size={13} color="#64748B" />
-                  <Text style={styles.sheetLocation}>{selectedProfile.location}</Text>
-                </View>
-              </View>
+              </TouchableOpacity>
 
               <TouchableOpacity
                 activeOpacity={0.8}
@@ -569,6 +601,18 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  pinAvatarFallback: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#BAE6FD',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinAvatarFallbackText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0284C7',
+  },
   profileSheetCard: {
     width: '100%',
     backgroundColor: '#FFFFFF',
@@ -596,11 +640,28 @@ const styles = StyleSheet.create({
     gap: 14,
     marginBottom: 16,
   },
+  sheetTouchableInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    flex: 1,
+  },
   sheetAvatar: {
     width: 60,
     height: 60,
     borderRadius: 20,
     backgroundColor: '#E2E8F0',
+    overflow: 'hidden',
+  },
+  sheetAvatarFallback: {
+    backgroundColor: '#BAE6FD',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetAvatarFallbackText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0284C7',
   },
   sheetMetaCol: {
     flex: 1,

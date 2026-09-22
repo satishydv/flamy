@@ -125,34 +125,61 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({
     if (item.profileId) {
       let targetProfile = profiles.find((p) => p.id === item.profileId);
 
+      const distanceStr = item.data?.distanceMeters
+        ? item.data.distanceMeters < 1000
+          ? `${item.data.distanceMeters}m away`
+          : `${(item.data.distanceMeters / 1000).toFixed(1)}km away`
+        : 'Nearby';
+
       if (!targetProfile) {
         targetProfile = {
           id: item.profileId,
-          name: item.senderName || 'Match',
-          age: 24,
+          name: item.senderName || 'Explorer',
+          age: 27,
           isVerified: true,
-          location: 'Nearby',
-          jobTitle: 'Member',
-          distance: 'Connected',
-          encountersCount: 1,
-          lastCrossed: 'Recently',
-          matchPercentage: 90,
-          bio: '',
-          tags: [],
+          location: item.data?.location || 'Nearby',
+          jobTitle: 'Creative Professional',
+          distance: distanceStr,
+          encountersCount: item.data?.encountersCount || 1,
+          lastCrossed: item.timestamp ? `Crossed paths ${item.timestamp}` : 'Recently',
+          matchPercentage: 92,
+          bio: 'Looking to meet genuine people and explore the city.',
+          tags: ['Coffee', 'Art', 'Travel'],
           image: item.profileAvatar?.uri || null,
           additionalImages: item.profileAvatar?.uri ? [item.profileAvatar.uri] : [],
           mapCoordinates: { x: 50, y: 50 },
-          category: 'likes',
+          category: 'all',
           online: true,
-          liked: true,
+          liked: false,
         };
+      } else {
+        if (item.data?.distanceMeters) {
+          targetProfile = { ...targetProfile, distance: distanceStr };
+        }
+        if (item.data?.encountersCount) {
+          targetProfile = { ...targetProfile, encountersCount: item.data.encountersCount };
+        }
+      }
+
+      // If action is "View Profile" or notification type is crossed paths / recommendation, open Profile View
+      if (item.actionText === 'View Profile' || item.type === 'crossed' || item.type === 'recommendation') {
+        if (onSelectProfile) {
+          onSelectProfile(targetProfile);
+          return;
+        }
       }
 
       if (item.type === 'match' || item.type === 'superlike' || item.type === 'request') {
-        if (onOpenChat) onOpenChat(targetProfile);
-      } else if (item.type === 'crossed') {
-        if (onSelectProfile) onSelectProfile(targetProfile);
-        else if (onOpenChat) onOpenChat(targetProfile);
+        if (onOpenChat) {
+          onOpenChat(targetProfile);
+          return;
+        }
+      }
+
+      if (onSelectProfile) {
+        onSelectProfile(targetProfile);
+      } else if (onOpenChat) {
+        onOpenChat(targetProfile);
       }
     }
   };
@@ -320,10 +347,14 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({
 
                     {item.actionText && (
                       <View style={styles.actionRow}>
-                        <View style={styles.actionPill}>
+                        <TouchableOpacity
+                          style={styles.actionPill}
+                          activeOpacity={0.7}
+                          onPress={() => handleNotificationPress(item)}
+                        >
                           <Text style={styles.actionPillText}>{item.actionText}</Text>
                           <Ionicons name="chevron-forward" size={12} color="#0284C7" />
-                        </View>
+                        </TouchableOpacity>
                       </View>
                     )}
                   </View>

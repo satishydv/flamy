@@ -18,12 +18,16 @@ import {
   deleteAccountController,
   updateLocationAndCheckProximityController,
   savePushTokenController,
+  getPublicUserProfileController,
 } from "../controllers/profile.controller.js";
 
 const router = Router();
 
 // Protect all profile routes with authentication
 router.use(requireAuth);
+
+// Get another user's public profile details
+router.get("/user/:id", getPublicUserProfileController);
 
 // Register device Expo Push Token
 router.post("/push-token", savePushTokenController);

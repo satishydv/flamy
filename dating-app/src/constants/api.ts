@@ -143,6 +143,7 @@ export const API_ENDPOINTS = {
 
   // Profile, Questionnaire & Cloudinary Image Upload
   getProfile: `${BACKEND_URL}/api/profile/me`,
+  getUserProfile: (userId: string) => `${BACKEND_URL}/api/profile/user/${userId}`,
   updateProfile: `${BACKEND_URL}/api/profile`,
   updateLocation: `${BACKEND_URL}/api/profile/location`,
   savePushToken: `${BACKEND_URL}/api/profile/push-token`,

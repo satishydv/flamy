@@ -6,7 +6,7 @@ import {
 } from "../services/cloudinary.service.js";
 import { emitToUser } from "../socket/index.js";
 import { getBlockedUserIds } from "./match.controller.js";
-import { createAndSendNotification } from "../services/notification.service.js";
+import { createAndSendNotification, formatNotificationTime } from "../services/notification.service.js";
 import { calculateDistanceKm, canonicalPair } from "../utils/geo.js";
 
 /**
@@ -1182,6 +1182,161 @@ export const savePushTokenController = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to save push token.",
+    });
+  }
+};
+
+/**
+ * Get another user's public profile details by ID
+ */
+export const getPublicUserProfileController = async (req, res) => {
+  try {
+    const currentUserId = req.user?.id;
+    const targetUserId = req.params.id;
+
+    if (!targetUserId) {
+      return res.status(400).json({ success: false, message: "Target user ID is required." });
+    }
+
+    const candidate = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      include: {
+        profile: true,
+        preference: true,
+        photos: {
+          orderBy: { order: "asc" },
+        },
+      },
+    });
+
+    if (!candidate || !candidate.profile) {
+      return res.status(404).json({ success: false, message: "Profile not found." });
+    }
+
+    const p = candidate.profile;
+    const pref = candidate.preference;
+
+    // Load current user's profile and preferences for distance and compatibility
+    let currentUser = null;
+    if (currentUserId) {
+      currentUser = await prisma.user.findUnique({
+        where: { id: currentUserId },
+        include: { profile: true, preference: true },
+      });
+    }
+
+    const myProfile = currentUser?.profile;
+    const myPref = currentUser?.preference;
+
+    // Distance calculation
+    let userLat = myProfile?.latitude || 17.4747;
+    let userLon = myProfile?.longitude || 78.3343;
+    let cLat = p.latitude;
+    let cLon = p.longitude;
+
+    if (cLat === null || cLon === null || isNaN(cLat) || isNaN(cLon)) {
+      const seed = (candidate.id.charCodeAt(candidate.id.length - 1) || 5) % 10;
+      cLat = userLat + (seed - 5) * 0.003;
+      cLon = userLon + ((seed * 3) % 10 - 5) * 0.003;
+    }
+
+    const distanceKm = calculateDistanceKm(userLat, userLon, cLat, cLon);
+    const distanceStr =
+      distanceKm < 1
+        ? `${Math.max(50, Math.round(distanceKm * 1000))}m away`
+        : `${distanceKm.toFixed(1)}km away`;
+
+    // Encounters
+    let encounter = null;
+    if (currentUserId) {
+      encounter = await prisma.encounter.findFirst({
+        where: {
+          OR: [
+            { user1Id: currentUserId, user2Id: targetUserId },
+            { user1Id: targetUserId, user2Id: currentUserId },
+          ],
+        },
+      });
+    }
+
+    const encCount = encounter?.count || 0;
+    const lastCrossedStr = encounter
+      ? `Crossed paths ${formatNotificationTime(encounter.lastCrossedAt)}`
+      : "Nearby on radar";
+
+    // Likes
+    let liked = false;
+    let superLiked = false;
+    if (currentUserId) {
+      const likeRecord = await prisma.like.findFirst({
+        where: { userId: currentUserId, targetUserId },
+      });
+      if (likeRecord) {
+        liked = true;
+        superLiked = likeRecord.action === "superlike";
+      }
+    }
+
+    // Compatibility score
+    let score = 78;
+    let matchReason = "Nearby Encounter";
+    if (myPref && pref) {
+      if (myPref.datingGoal && myPref.datingGoal === pref.datingGoal) {
+        score += 10;
+        matchReason = `Shared Goal: ${myPref.datingGoal}`;
+      }
+      if (myPref.personality && myPref.personality === pref.personality) {
+        score += 6;
+        matchReason = "Same Energy & Vibe";
+      }
+      if (myPref.musicPreference && myPref.musicPreference === pref.musicPreference) {
+        score += 5;
+      }
+    } else {
+      score = 82 + ((candidate.id.charCodeAt(candidate.id.length - 1) || 2) % 15);
+    }
+    const finalMatchPct = Math.min(99, Math.max(72, score));
+    const galleryUrls = (candidate.photos || []).map((photo) => photo.url);
+
+    const formattedProfile = {
+      id: candidate.id,
+      name: candidate.name,
+      age: p.age || 24,
+      isVerified: true,
+      jobTitle: p.jobTitle || "Creative Professional",
+      location: encounter?.locationName || p.location || "Nearby",
+      distance: distanceStr,
+      distanceKm,
+      encountersCount: encCount,
+      lastCrossed: lastCrossedStr,
+      hasCrossedPaths: !!encounter,
+      lastCrossedAt: encounter?.lastCrossedAt || null,
+      matchPercentage: finalMatchPct,
+      bio: p.bio || "Looking to meet genuine people and explore the city.",
+      tags: p.tags && p.tags.length > 0 ? p.tags : ["Coffee", "Art", "Travel"],
+      image: candidate.image || p.avatarUrl || galleryUrls[0] || null,
+      additionalImages: galleryUrls,
+      photos: candidate.photos || [],
+      online: true,
+      liked,
+      superLiked,
+      datingGoal: pref?.datingGoal || "Long-Term Dating",
+      personality: pref?.personality || "Balanced & Mindful",
+      partnerTraits: pref?.partnerTraits || "Sense of Humor",
+      musicPreference: pref?.musicPreference || "Indie & Acoustic",
+      dealBreakers: pref?.dealBreakers || "Dishonesty",
+      compatibilityReason: matchReason,
+    };
+
+    return res.json({
+      success: true,
+      profile: formattedProfile,
+    });
+  } catch (error) {
+    console.error("[PROFILE CONTROLLER] getPublicUserProfile error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve user profile.",
     });
   }
 };

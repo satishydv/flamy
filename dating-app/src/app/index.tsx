@@ -17,6 +17,7 @@ import { MatchModal } from '@/components/match-modal';
 import { ChatModal } from '@/components/chat-modal';
 import { MessageRequestModal } from '@/components/message-request-modal';
 import { IncomingCallModal } from '@/components/incoming-call-modal';
+import { ProfileDetailModal } from '@/components/profile-detail-modal';
 import { AuthScreen } from '@/components/screens/auth-screen';
 import { NotificationsScreen } from '@/components/screens/notifications-screen';
 import { MessagesScreen } from '@/components/screens/messages-screen';
@@ -48,6 +49,7 @@ export default function App() {
   const [isAuthScreen, setIsAuthScreen] = useState<boolean>(false);
   const [isInitializing, setIsInitializing] = useState<boolean>(true);
   const [isNotificationsScreen, setIsNotificationsScreen] = useState<boolean>(false);
+  const [viewingProfile, setViewingProfile] = useState<Profile | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selectedMatch, setSelectedMatch] = useState<Profile | null>(null);
@@ -827,9 +829,32 @@ export default function App() {
             setActiveChatProfile(profile);
           }}
           onSelectProfile={(profile) => {
+            setViewingProfile(profile);
+          }}
+        />
+
+        {/* Dedicated Candidate Profile Page / Modal */}
+        <ProfileDetailModal
+          visible={!!viewingProfile}
+          profile={viewingProfile}
+          onClose={() => setViewingProfile(null)}
+          onLikeProfile={handleLike}
+          onSuperLikeProfile={handleSuperLike}
+          onUnlikeProfile={handleUnlike}
+          onOpenChat={(profile) => {
+            setViewingProfile(null);
             setIsNotificationsScreen(false);
             fetchCounts();
             setActiveChatProfile(profile);
+          }}
+          onOpenMessageRequest={(profile) => {
+            setViewingProfile(null);
+            setActiveRequestProfile(profile);
+          }}
+          onBlockUser={() => {
+            setViewingProfile(null);
+            fetchCounts();
+            fetchFeed();
           }}
         />
       </View>
@@ -861,7 +886,7 @@ export default function App() {
         {activeTab === 'explore' && (
           <ExploreScreen
             profiles={profiles}
-            onSelectProfile={handleOpenChat}
+            onSelectProfile={(profile) => setViewingProfile(profile)}
             onLikeProfile={handleLike}
           />
         )}
@@ -873,6 +898,7 @@ export default function App() {
             onLikeProfile={handleLike}
             onUnlikeProfile={handleUnlike}
             onOpenChat={handleOpenChat}
+            onSelectProfile={(profile) => setViewingProfile(profile)}
           />
         )}
 
@@ -961,6 +987,29 @@ export default function App() {
           setAcceptedCallId('');
           fetchFeed();
           fetchCounts();
+        }}
+      />
+
+      {/* Dedicated Candidate Profile Page / Modal */}
+      <ProfileDetailModal
+        visible={!!viewingProfile}
+        profile={viewingProfile}
+        onClose={() => setViewingProfile(null)}
+        onLikeProfile={handleLike}
+        onSuperLikeProfile={handleSuperLike}
+        onUnlikeProfile={handleUnlike}
+        onOpenChat={(profile) => {
+          setViewingProfile(null);
+          handleOpenChat(profile);
+        }}
+        onOpenMessageRequest={(profile) => {
+          setViewingProfile(null);
+          setActiveRequestProfile(profile);
+        }}
+        onBlockUser={() => {
+          setViewingProfile(null);
+          fetchCounts();
+          fetchFeed();
         }}
       />
 

@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Slot } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, Platform } from 'react-native';
 import { useFonts } from 'expo-font';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -21,6 +21,22 @@ export default function RootLayout() {
       SplashScreen.hideAsync().catch(() => {});
     }
   }, [fontsLoaded]);
+
+  // Ensure external OAuth avatar images (such as Google lh3.googleusercontent.com)
+  // are not blocked by hotlink/Referer headers on web
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      let meta = document.querySelector('meta[name="referrer"]');
+      if (!meta) {
+        meta = document.createElement('meta');
+        meta.setAttribute('name', 'referrer');
+        meta.setAttribute('content', 'no-referrer');
+        document.head.appendChild(meta);
+      } else {
+        meta.setAttribute('content', 'no-referrer');
+      }
+    }
+  }, []);
 
   return (
     <SafeAreaProvider>

@@ -261,11 +261,25 @@ export const MessagesScreen: React.FC<MessagesScreenProps> = ({
                 onPress={() => onOpenChat(profile)}
               >
                 <View style={styles.matchAvatarWrapper}>
-                  <Image
-                    source={typeof profile.image === 'string' ? { uri: profile.image } : profile.image}
-                    style={styles.matchAvatar}
-                    contentFit="cover"
-                  />
+                  {profile.image || profile.photos?.[0]?.url ? (
+                    <Image
+                      source={
+                        typeof profile.image === 'string' && profile.image
+                          ? { uri: profile.image }
+                          : profile.photos?.[0]?.url
+                          ? { uri: profile.photos[0].url }
+                          : profile.image
+                      }
+                      style={styles.matchAvatar}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <View style={[styles.matchAvatar, styles.fallbackAvatar]}>
+                      <Text style={styles.fallbackAvatarText}>
+                        {profile.name ? profile.name.slice(0, 2).toUpperCase() : '??'}
+                      </Text>
+                    </View>
+                  )}
                   {profile.online && <View style={styles.onlineDot} />}
                   <View style={styles.matchPercentageBadge}>
                     <Text style={styles.matchPercentageText}>{profile.matchPercentage}%</Text>
@@ -618,9 +632,12 @@ const styles = StyleSheet.create({
   },
   newMatchesScrollView: {
     marginHorizontal: -18,
+    overflow: 'visible',
   },
   newMatchesScroll: {
     paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 6,
     gap: 14,
   },
   matchAvatarItem: {
@@ -630,6 +647,7 @@ const styles = StyleSheet.create({
   matchAvatarWrapper: {
     position: 'relative',
     marginBottom: 6,
+    paddingTop: 2,
   },
   matchAvatar: {
     width: 62,
@@ -637,6 +655,18 @@ const styles = StyleSheet.create({
     borderRadius: 31,
     borderWidth: 2,
     borderColor: '#0EA5E9',
+    overflow: 'hidden',
+    backgroundColor: '#E2E8F0',
+  },
+  fallbackAvatar: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#BAE6FD',
+  },
+  fallbackAvatarText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0284C7',
   },
   onlineDot: {
     position: 'absolute',
@@ -648,15 +678,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#10B981',
     borderWidth: 2,
     borderColor: '#FFFFFF',
+    zIndex: 2,
   },
   matchPercentageBadge: {
     position: 'absolute',
-    top: -2,
-    right: -4,
+    top: 0,
+    right: -2,
     backgroundColor: '#0284C7',
     borderRadius: 8,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    zIndex: 2,
   },
   matchPercentageText: {
     fontSize: 9,
