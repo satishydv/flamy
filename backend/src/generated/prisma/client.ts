@@ -126,3 +126,13 @@ export type Report = Prisma.ReportModel
  * 
  */
 export type Encounter = Prisma.EncounterModel
+/**
+ * Model AdminUser
+ * 
+ */
+export type AdminUser = Prisma.AdminUserModel
+/**
+ * Model AdminSession
+ * 
+ */
+export type AdminSession = Prisma.AdminSessionModel

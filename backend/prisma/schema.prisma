@@ -303,3 +303,31 @@ model Encounter {
   @@map("encounter")
 }
 
+model AdminUser {
+  id        String         @id @default(cuid())
+  email     String         @unique
+  name      String
+  password  String
+  role      String         @default("superadmin") // "superadmin", "admin", "moderator"
+  isActive  Boolean        @default(true)
+  avatar    String?
+  lastLogin DateTime?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  sessions  AdminSession[]
+
+  @@map("admin_user")
+}
+
+model AdminSession {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  adminId   String
+  admin     AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+
+  @@index([adminId])
+  @@map("admin_session")
+}
+

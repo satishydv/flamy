@@ -9,6 +9,8 @@ import profileRoutes from "./routes/profile.routes.js";
 import matchRoutes from "./routes/match.routes.js";
 import messageRoutes from "./routes/message.routes.js";
 import notificationRoutes from "./routes/notification.routes.js";
+import adminRoutes from "./routes/admin.routes.js";
+import { ensureSuperAdmin } from "./controllers/admin.controller.js";
 import { initSocket } from "./socket/index.js";
 
 dotenv.config({ quiet: true });
@@ -68,6 +70,9 @@ app.use("/api/messages", messageRoutes);
 // In-app notifications & alerts routes
 app.use("/api/notifications", notificationRoutes);
 
+// Admin Dashboard Management routes
+app.use("/api/admin", adminRoutes);
+
 // Basic health check route
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
@@ -89,6 +94,7 @@ async function startServer() {
     try {
       await prisma.$queryRaw`SELECT 1`;
       console.log("Database connected successfully");
+      await ensureSuperAdmin();
     } catch (error) {
       console.error("Database connection failed:", error.message || error);
     }

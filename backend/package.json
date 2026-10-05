@@ -5,7 +5,9 @@
   "main": "src/server.js",
   "scripts": {
     "dev": "nodemon src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "setup:admin": "node scripts/setup-admin-db.js",
+    "prisma:push": "prisma db push"
   },
   "keywords": [],
   "author": "",
